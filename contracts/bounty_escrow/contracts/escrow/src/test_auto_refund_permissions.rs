@@ -1,7 +1,7 @@
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token, Address, Env,
+    testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke},
+    token, Address, Env, IntoVal,
 };
 
 fn create_token_contract<'a>(
@@ -23,11 +23,11 @@ fn create_escrow_contract<'a>(e: &Env) -> BountyEscrowContractClient<'a> {
 
 struct TestSetup<'a> {
     env: Env,
-    _admin: Address, // Added underscore
+    admin: Address,
     depositor: Address,
-    _random_user: Address, // Added underscore
+    random_user: Address,
     token: token::Client<'a>,
-    _token_admin: token::StellarAssetClient<'a>, // Added underscore
+    token_admin: token::StellarAssetClient<'a>,
     escrow: BountyEscrowContractClient<'a>,
 }
 
@@ -48,40 +48,14 @@ impl<'a> TestSetup<'a> {
 
         Self {
             env,
-            _admin: admin,
+            admin,
             depositor,
-            _random_user: random_user,
+            random_user,
             token,
-            _token_admin: token_admin,
+            token_admin,
             escrow,
         }
     }
-}
-
-#[test]
-fn test_auto_refund_anyone_can_trigger_after_deadline() {
-    let setup = TestSetup::new();
-    let bounty_id = 1;
-    let amount = 1000;
-    let deadline = setup.env.ledger().timestamp() + 1000;
-
-    setup
-        .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
-
-    setup.env.ledger().set_timestamp(deadline + 1);
-
-    let initial_balance = setup.token.balance(&setup.depositor);
-
-    // Random user triggers refund
-    setup.escrow.refund(&bounty_id);
-
-    let escrow = setup.escrow.get_escrow_info(&bounty_id);
-    assert_eq!(escrow.status, EscrowStatus::Refunded);
-    assert_eq!(
-        setup.token.balance(&setup.depositor),
-        initial_balance + amount
-    );
 }
 
 #[test]
@@ -91,13 +65,79 @@ fn test_auto_refund_admin_can_trigger_after_deadline() {
     let amount = 1000;
     let deadline = setup.env.ledger().timestamp() + 1000;
 
+    setup.env.mock_auths(&[
+        MockAuth {
+            address: &setup.depositor,
+            invoke: &MockAuthInvoke {
+                contract: &setup.escrow.address,
+                fn_name: "lock_funds",
+                args: (
+                    setup.depositor.clone(),
+                    bounty_id,
+                    amount,
+                    deadline,
+                )
+                    .into_val(&setup.env),
+                sub_invokes: &[MockAuthInvoke {
+                    contract: &setup.token.address,
+                    fn_name: "transfer",
+                    args: (
+                        setup.depositor.clone(),
+                        setup.escrow.address.clone(),
+                        amount,
+                    )
+                        .into_val(&setup.env),
+                    sub_invokes: &[],
+                }],
+            },
+        },
+        MockAuth {
+            address: &setup.admin,
+            invoke: &MockAuthInvoke {
+                contract: &setup.token.address,
+                fn_name: "mint",
+                args: (setup.depositor.clone(), 1_000_000i128).into_val(&setup.env),
+                sub_invokes: &[],
+            },
+        },
+    ]);
+    setup.token_admin.mint(&setup.depositor, &1_000_000);
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline + 1);
 
     let initial_balance = setup.token.balance(&setup.depositor);
+
+    setup.env.mock_auths(&[MockAuth {
+        address: &setup.admin,
+        invoke: &MockAuthInvoke {
+            contract: &setup.escrow.address,
+            fn_name: "refund",
+            args: (bounty_id,).into_val(&setup.env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &setup.token.address,
+                fn_name: "transfer",
+                args: (
+                    setup.escrow.address.clone(),
+                    setup.depositor.clone(),
+                    amount,
+                )
+                    .into_val(&setup.env),
+                sub_invokes: &[],
+            }],
+        },
+    },
+    MockAuth {
+        address: &setup.depositor,
+        invoke: &MockAuthInvoke {
+            contract: &setup.escrow.address,
+            fn_name: "refund",
+            args: (bounty_id,).into_val(&setup.env),
+            sub_invokes: &[],
+        },
+    }]);
 
     // Admin triggers refund
     setup.escrow.refund(&bounty_id);
@@ -119,11 +159,40 @@ fn test_auto_refund_depositor_can_trigger_after_deadline() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline + 1);
 
     let initial_balance = setup.token.balance(&setup.depositor);
+
+    setup.env.mock_auths(&[MockAuth {
+        address: &setup.depositor,
+        invoke: &MockAuthInvoke {
+            contract: &setup.escrow.address,
+            fn_name: "refund",
+            args: (bounty_id,).into_val(&setup.env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &setup.token.address,
+                fn_name: "transfer",
+                args: (
+                    setup.escrow.address.clone(),
+                    setup.depositor.clone(),
+                    amount,
+                )
+                    .into_val(&setup.env),
+                sub_invokes: &[],
+            }],
+        },
+    },
+    MockAuth {
+        address: &setup.admin,
+        invoke: &MockAuthInvoke {
+            contract: &setup.escrow.address,
+            fn_name: "refund",
+            args: (bounty_id,).into_val(&setup.env),
+            sub_invokes: &[],
+        },
+    }]);
 
     // Depositor triggers refund
     setup.escrow.refund(&bounty_id);
@@ -137,6 +206,32 @@ fn test_auto_refund_depositor_can_trigger_after_deadline() {
 }
 
 #[test]
+#[should_panic]
+fn test_auto_refund_unauthorized_random_user_panics_on_missing_required_auth() {
+    let setup = TestSetup::new();
+    let bounty_id = 1;
+    let amount = 1000;
+    let deadline = setup.env.ledger().timestamp() + 1000;
+
+    setup
+        .escrow
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
+
+    setup.env.ledger().set_timestamp(deadline + 1);
+
+    setup.env.mock_auths(&[MockAuth {
+        address: &setup.random_user,
+        invoke: &MockAuthInvoke {
+            contract: &setup.escrow.address,
+            fn_name: "refund",
+            args: (bounty_id,).into_val(&setup.env),
+            sub_invokes: &[],
+        },
+    }]);
+    setup.escrow.refund(&bounty_id);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #6)")] // DeadlineNotPassed
 fn test_auto_refund_fails_before_deadline() {
     let setup = TestSetup::new();
@@ -146,7 +241,7 @@ fn test_auto_refund_fails_before_deadline() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     // Try to refund before deadline
     setup.escrow.refund(&bounty_id);
@@ -162,7 +257,7 @@ fn test_auto_refund_admin_cannot_bypass_deadline() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     // Admin tries to refund before deadline (should fail)
     setup.escrow.refund(&bounty_id);
@@ -177,7 +272,7 @@ fn test_auto_refund_at_exact_deadline() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline);
 
@@ -203,7 +298,7 @@ fn test_auto_refund_idempotent_second_call_fails() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline + 1);
 
@@ -223,7 +318,7 @@ fn test_auto_refund_balance_stable_after_first_refund() {
 
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline + 1);
 
@@ -242,7 +337,7 @@ fn test_auto_refund_balance_stable_after_first_refund() {
 }
 
 #[test]
-fn test_auto_refund_different_users_same_result() {
+fn test_auto_refund_admin_and_depositor_same_result() {
     let setup = TestSetup::new();
     let bounty_id_1 = 1;
     let bounty_id_2 = 2;
@@ -252,16 +347,16 @@ fn test_auto_refund_different_users_same_result() {
     // Lock two bounties
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id_1, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id_1, &amount, &deadline);
     setup
         .escrow
-        .lock_funds(&setup.depositor, &bounty_id_2, &amount, &deadline, &None);
+        .lock_funds(&setup.depositor, &bounty_id_2, &amount, &deadline);
 
     setup.env.ledger().set_timestamp(deadline + 1);
 
     let initial_balance = setup.token.balance(&setup.depositor);
 
-    // Random user triggers first refund
+    // Depositor triggers first refund
     setup.escrow.refund(&bounty_id_1);
 
     // Admin triggers second refund
