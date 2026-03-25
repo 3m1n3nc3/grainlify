@@ -462,7 +462,6 @@ pub enum DataKey {
     MultisigConfig(String),          // program_id -> MultisigConfig
     SplitConfig(String),             // program_id -> SplitConfig
     PayoutApproval(String, Address), // program_id, recipient -> PayoutApproval
-    SplitConfig(String),             // program_id -> SplitConfig
     PendingClaim(String, u64),       // (program_id, schedule_id) -> ClaimRecord
     ClaimWindow,                     // u64 seconds (global config)
     PauseFlags,                      // PauseFlags struct
