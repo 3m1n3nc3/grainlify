@@ -22,6 +22,37 @@
           "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
             "key": {
+              "symbol": "err_count"
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "symbol": "err_count"
+                },
+                "durability": "persistent",
+                "val": {
+                  "u64": 5
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
               "symbol": "last_op_ts"
             },
             "durability": "persistent"
@@ -37,11 +68,10 @@
                 "key": {
                   "symbol": "last_op_ts"
                 },
+                "durability": "persistent",
                 "val": {
-                  "u64": 5,
-                  "symbol": "err_count"
-                },
-                "durability": "persistent"
+                  "u64": 0
+                }
               }
             },
             "ext": "v0"

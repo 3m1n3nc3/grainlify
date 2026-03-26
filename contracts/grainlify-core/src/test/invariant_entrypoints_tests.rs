@@ -1,11 +1,12 @@
 #![cfg(test)]
 
-use crate::{monitoring, DataKey, GrainlifyContract, GrainlifyContractClient};
+use crate::{
+    governance, monitoring, DataKey, GovernanceConfig, GrainlifyContract,
+    GrainlifyContractClient, VotingScheme,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, String, String as SdkString, Symbol, Vec};
-use crate::{
-    governance, DataKey, GovernanceConfig, GrainlifyContract, GrainlifyContractClient, VotingScheme,
+    Address, Env, String, String as SdkString, Symbol, Vec,
 };
 
 fn setup_contract(env: &Env) -> (GrainlifyContractClient<'_>, Address) {

@@ -830,6 +830,18 @@ impl ProgramEscrowContract {
         // Store program data
         env.storage().instance().set(&PROGRAM_DATA, &program_data);
 
+        if !env.storage().instance().has(&FEE_CONFIG) {
+            env.storage().instance().set(
+                &FEE_CONFIG,
+                &FeeConfig {
+                    lock_fee_rate: 0,
+                    payout_fee_rate: 0,
+                    fee_recipient: authorized_payout_key.clone(),
+                    fee_enabled: false,
+                },
+            );
+        }
+
         // Fallback for legacy tests: if admin not set, set it to authorized_payout_key
         if !env.storage().instance().has(&DataKey::Admin) {
             env.storage()
@@ -2160,6 +2172,16 @@ impl ProgramEscrowContract {
         program_id: String,
         beneficiaries: Vec<BeneficiarySplit>,
     ) -> SplitConfig {
+        if let Some(admin) = env.storage().instance().get::<_, Address>(&DataKey::Admin) {
+            admin.require_auth();
+        } else {
+            let program: ProgramData = env
+                .storage()
+                .instance()
+                .get(&PROGRAM_DATA)
+                .unwrap_or_else(|| panic!("Program not initialized"));
+            program.authorized_payout_key.require_auth();
+        }
         payout_splits::set_split_config(&env, &program_id, beneficiaries)
     }
 
@@ -2168,6 +2190,16 @@ impl ProgramEscrowContract {
     }
 
     pub fn disable_split_config(env: Env, program_id: String) {
+        if let Some(admin) = env.storage().instance().get::<_, Address>(&DataKey::Admin) {
+            admin.require_auth();
+        } else {
+            let program: ProgramData = env
+                .storage()
+                .instance()
+                .get(&PROGRAM_DATA)
+                .unwrap_or_else(|| panic!("Program not initialized"));
+            program.authorized_payout_key.require_auth();
+        }
         payout_splits::disable_split_config(&env, &program_id);
     }
 
@@ -2176,6 +2208,12 @@ impl ProgramEscrowContract {
         program_id: String,
         total_amount: i128,
     ) -> payout_splits::SplitPayoutResult {
+        let program: ProgramData = env
+            .storage()
+            .instance()
+            .get(&PROGRAM_DATA)
+            .unwrap_or_else(|| panic!("Program not initialized"));
+        program.authorized_payout_key.require_auth();
         payout_splits::execute_split_payout(&env, &program_id, total_amount)
     }
 
